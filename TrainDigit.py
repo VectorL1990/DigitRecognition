@@ -1,18 +1,74 @@
 import tensorflow as tf
 import numpy as np
+import matplotlib.pyplot as plt
+import time
+import math
+from datetime import timedelta
 
 test_images = [None, [None]]
 train_images = [None, [None]]
 test_class = [None]
 predict_class = [None]
 test_batch_size = 256
+train_batch_size = 64
+fc_size = 128
+num_classification = 10
+img_size = 0
+num_channels = 0
+filter_size1 = 0
+num_filters1 = 0
+filter_size2 = 0
+num_filters2 = 0
+session = None
+num_iterations = 0
 
-def initGloabl(in_test_images, in_train_images, in_test_class, in_predict_class):
-    global test_images, train_images, test_class, predict_class
+
+
+def initGloabl(in_test_images, 
+                in_train_images, 
+                in_test_class, 
+                in_predict_class,
+                in_test_batch_size,
+                in_train_batch_size,
+                in_fc_size,
+                in_num_classification,
+                in_img_size,
+                in_num_channels,
+                in_filter_size1,
+                in_num_filters1,
+                in_filter_size2,
+                in_num_filters2,
+                in_num_iterations):
+    global test_images
+    global train_images
+    global test_class
+    global predict_class
+    global test_batch_size
+    global train_batch_size
+    global fc_size
+    global num_classification
+    global img_size
+    global num_channels
+    global filter_size1
+    global filter_size2
+    global num_filters1
+    global num_filters2
+    global num_iterations
     test_images = in_test_images
     train_images = in_train_images
     test_class = in_test_class
     predict_class = in_predict_class
+    test_batch_size = in_test_batch_size
+    train_batch_size = in_train_batch_size
+    fc_size = in_fc_size
+    num_classification = in_num_classification
+    img_size = in_img_size
+    num_channels = in_num_channels
+    filter_size1 = in_filter_size1
+    filter_size2 = in_filter_size2
+    num_filters1 = in_num_filters1
+    num_filters2 = in_num_filters2
+    num_iterations = in_num_iterations
 
 
 # This function generate weights for each filter by normal distribution
@@ -29,16 +85,29 @@ def new_biases(length):
 # X-axis of each image. Ditto.
 # Channels produced by the convolutional filters.
 def convLayer(input,
-                    num_input_channels,
-                    filter_size,
-                    num_filters,
-                    use_pooling=True):
+                num_input_channels,
+                filter_size,
+                num_filters,
+                use_pooling=True):
+    
+    '''
+    for example, there are 3 filters, each size is 2x2, but only outpu 1 channel
+    |3  0|  |0  1|  |1   -1|
+    |1  2|  |3  3|  |-1  -1|
+    '''
     shape = [filter_size, filter_size, num_input_channels, num_filters]
 
     weights = newWeights(shape=shape)
 
     biases = new_biases(length=num_filters)
 
+    '''
+    For 2D image, layer should be 4 dimensions
+    1st dimension represents number of images,
+    2nd dimension represents image height
+    3rd dimension represents image width
+    4th dimension represents number of channel, which means a feature
+    '''
     layer = tf.nn.conv2d(input = input,
                         filter = weights,
                         strides = [1, 1, 1, 1],
@@ -58,14 +127,24 @@ def convLayer(input,
 
 
 def flattenLayer(layer):
+    
+    # Let's assume the input layer is conv layer
+    # Then layer shape should represet
+    # 1D = number of images, 2D = image height, 3D = image width, 4D = number of channels
     layer_shape = layer.get_shape()
 
-    img_height = layer_shape[1].num_elements()
-    img_width = layer_shape[2].num_elements()
+    # Let's assume each original image has 16 channels
+    # Which means there are 16 "generated images" of each original image
+    # But now we want to "flatten" all channels
+    # which means that we want to assemble all "generated images" into a single array
+    # In that case we generate an 1D array which contains 16 images' pixels
+    image_height = layer_shape[1].num_elements()
+    image_width = layer_shape[2].num_elements()
     num_channels = layer_shape[3].num_elements()
+    num_features = image_width*image_height*num_channels
 
-    num_features = img_width*img_height*num_channels
-
+    # Here we flatten image array
+    # 1st D represents number of images, so we transfer -1 as 1st parameter
     layer_flat = tf.reshape(layer, [-1, num_features])
 
     return layer_flat, num_features
@@ -85,72 +164,89 @@ def fullyConnectLayer(input,
 
     return layer
 
+def constructLayersAndOptimizer():
+    global img_size
+    global num_channels
+    global filter_size1
+    global filter_size2
+    global num_filters1
+    global num_filters2
+    global num_classification
+    global session
 
-x = tf.placeholder(tf.float32, shape=[None, img_size_flat], name = 'x')
+    img_size_flat = img_size*img_size
+    x = tf.placeholder(tf.float32, shape=[None, img_size_flat], name = 'x')
 
-x_image = tf.reshape(x, [-1, img_size, img_size, num_channels])
+    x_image = tf.reshape(x, [-1, img_size, img_size, num_channels])
 
-y_true = tf.placeholder(tf.float32, shape=[None, num_classification], name = 'y_true')
+    y_true = tf.placeholder(tf.float32, shape=[None, num_classification], name = 'y_true')
 
-y_true_classification = tf.argmax(y_true, dimension = 1)
+    y_true_classification = tf.argmax(y_true, dimension = 1)
 
-layer_conv1, weights_conv1 = convLayer(input = x_image, 
-                                        num_input_channels= num_channels,
-                                        filter_size= filter_size1,
-                                        num_filters= num_filters1,
-                                        use_pooling=True)
+    layer_conv1, weights_conv1 = convLayer(input = x_image, 
+                                            num_input_channels= num_channels,
+                                            filter_size= filter_size1,
+                                            num_filters= num_filters1,
+                                            use_pooling=True)
 
-layer_conv2, weights_conv2 = convLayer(input=layer_conv1,
-                                        num_input_channels=num_filters1,
-                                        filter_size=filter_size2,
-                                        num_filters=num_filters2,
-                                        use_pooling=True)
+    layer_conv2, weights_conv2 = convLayer(input=layer_conv1,
+                                            num_input_channels=num_filters1,
+                                            filter_size=filter_size2,
+                                            num_filters=num_filters2,
+                                            use_pooling=True)
 
-layer_flat, num_features = flattenLayer(layer_conv2)
+    # For 2D image trainings, layer_flat is a 2D array
+    # 1st D represents number of images
+    # 2nd D represents assembled pixels of all generated channel images
+    # num_features might be 28*28*16(we assume there are 16 channels being extracted)
+    layer_flat, num_features = flattenLayer(layer_conv2)
 
-layer_fc1 = fullyConnectLayer(input= layer_flat,
-                                num_inputs=num_features,
-                                num_outputs=fc_size,
-                                use_relu=True)
+    # For 2D image training, just for example, dimension of layer_flat is 60000x(28*28*16)
+    # Then dimension of layer_fc1 is 60000x128
+    layer_fc1 = fullyConnectLayer(input= layer_flat,
+                                    num_inputs=num_features,
+                                    num_outputs=fc_size,
+                                    use_relu=True)
 
-layer_fc2 = fullyConnectLayer(input=layer_fc1,
-                                num_inputs=fc_size,
-                                num_outputs=num_classification,
-                                use_relu=False)
 
-y_predict = tf.nn.softmax(layer_fc2)
+    layer_fc2 = fullyConnectLayer(input=layer_fc1,
+                                    num_inputs=fc_size,
+                                    num_outputs=num_classification,
+                                    use_relu=False)
 
-y_predict_classification = tf.argmax(y_predict, dimension = 1)
+    # softmax calculate probabilities on each dimensions
+    # by default it do softmax calculation on the last dimension
+    y_predict = tf.nn.softmax(layer_fc2)
 
-cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=layer_fc2, labels = y_true)
+    y_predict_classification = tf.argmax(y_predict, dimension = 1)
 
-cost = tf.reduce_mean(cross_entropy)
+    cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=layer_fc2, labels = y_true)
 
-optimizer = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(cost)
+    cost = tf.reduce_mean(cross_entropy)
 
-corret_prediction = tf.equal(y_predict_classification, y_true_classification)
+    optimizer = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(cost)
 
-accuracy = tf.reduce_mean(tf.cast(corret_prediction, tf.float32))
+    corret_prediction = tf.equal(y_predict_classification, y_true_classification)
 
-session = tf.Session()
+    accuracy = tf.reduce_mean(tf.cast(corret_prediction, tf.float32))
 
-session.run(tf.global_variables_initializer())
+    session = tf.Session()
 
-train_batch_size = 64
+    session.run(tf.global_variables_initializer())
 
-total_iterations = 0
+    return optimizer, accuracy, y_predict_classification, y_true_classification
 
-def optimize(num_iterations, flat_size_imgs, true_classifications):
-    global total_iterations
+
+def optimize(num_iterations, flat_size_imgs, true_classifications, optimizer, accuracy):
     global train_batch_size
+    global session
 
     start_time = time.time()
 
-    current_batch_start_location = 0
-    for i in range(total_iterations, total_iterations + num_iterations):
+    for i in range(num_iterations):
         # We should assign images to x and classification here
-        x_batch = flat_size_imgs[current_batch_start_location : current_batch_start_location + train_batch_size]
-        y_true_batch = true_classifications[current_batch_start_location : current_batch_start_location + train_batch_size]
+        x_batch = flat_size_imgs[0 : train_batch_size]
+        y_true_batch = true_classifications[0 : train_batch_size]
         feed_dict_train = {x: x_batch, y_true: y_true_batch}
         session.run(optimizer, feed_dict = feed_dict_train)
 
@@ -160,8 +256,6 @@ def optimize(num_iterations, flat_size_imgs, true_classifications):
             msg = "Optimization Iteration: {0:>6}, Training Accuracy: {1:>6.1%}"
 
             print(msg.format(i + 1, acc))
-
-    total_iterations += num_iterations
 
     end_time = time.time()
 
@@ -177,10 +271,10 @@ def plotExampleErrors(predict_classification, correct, test_imgs, test_classific
     predict_classification = predict_classification[incorrect]
     true_classification = test_classification[incorrect]
 
-    plot_images(images=images, true_class=true_classification, predict_class= predict_classification)
+    plotImage(images=images, true_class=true_classification, predict_class= predict_classification)
 
 
-def printTestAccuracy(show_example_errors=False, show_confusion_matrix=False):
+def printTestAccuracy(show_example_errors, y_predict_classification):
     global test_images
     global test_class
     global test_batch_size
@@ -203,3 +297,69 @@ def printTestAccuracy(show_example_errors=False, show_confusion_matrix=False):
 
     acc = float(correct_sum) / num_test_images
 
+    print("Accuracy is: {0:.1%} = ({1} / {2})".format(acc, correct_sum, num_test_images))
+
+    if show_example_errors:
+        plotExampleErrors(predict_classification=predict_class, correct=correct_class_list)
+
+
+def plotConvWeights(weights, input_channel=0):
+    w = session.run(weights)
+    w_min = np.min(w)
+    w_max = np.max(w)
+
+    num_filters = w.shape[3]
+
+    num_grids = math.ceil(math.sqrt(num_filters))
+
+    fig, axes = plt.subplots(num_grids, num_grids)
+
+    for i, ax in enumerate(axes.flat):
+        if i < num_filters:
+            img = w[:, :, input_channel, i]
+            ax.imshow(img, vmin=w_min, vmax=w_max, interpolation='nearest', cmap='seismic')
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    plt.show()
+
+
+def plot_conv_layer(layer, image):
+    feed_dict = {x: [image]}
+    values = session.run(layer, feed_dict=feed_dict)
+    num_filters = values.shape[3]
+    num_grids = math.ceil(math.sqrt(num_filters))
+    fig, axes = plt.subplots(num_grids, num_grids)
+
+    for i, ax in enumerate(axes.flat):
+        if i < num_filters:
+            img = values[0, :, :, i]
+            ax.imshow(img, interpolation='nearest', cmap='binary')
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    plt.show()
+
+
+def plotImage(image):
+    global img_size
+    img_shape = (img_size, img_size)
+    plt.imshow(image.reshape(img_shape),
+                interpolation='nearest',
+                cmap='binary')
+    plt.show()
+
+
+def RunTrain():
+    global num_iterations
+    global train_images
+    img_flat = tf.reshape(train_images, [-1, img_size*img_size])
+    optimizer, accuracy, y_predict_classification, y_true_classification = constructLayersAndOptimizer()
+    optimize(num_iterations=num_iterations, 
+            flat_size_imgs=img_flat, 
+            true_classifications= y_true_classification,
+            optimizer= optimizer,
+            accuracy= accuracy)
+
+    printTestAccuracy(True, y_predict_classification=y_predict_classification)
