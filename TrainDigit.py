@@ -1,4 +1,6 @@
-import tensorflow as tf
+#import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 import numpy as np
 import matplotlib.pyplot as plt
 import time
@@ -8,11 +10,10 @@ from datetime import timedelta
 test_images = [None, [None]]
 train_images = [None, [None]]
 test_class = [None]
-predict_class = [None]
 test_batch_size = 256
 train_batch_size = 64
 fc_size = 128
-num_classification = 10
+num_classification = 0
 img_size = 0
 num_channels = 0
 filter_size1 = 0
@@ -27,7 +28,6 @@ num_iterations = 0
 def initGloabl(in_test_images, 
                 in_train_images, 
                 in_test_class, 
-                in_predict_class,
                 in_test_batch_size,
                 in_train_batch_size,
                 in_fc_size,
@@ -42,7 +42,6 @@ def initGloabl(in_test_images,
     global test_images
     global train_images
     global test_class
-    global predict_class
     global test_batch_size
     global train_batch_size
     global fc_size
@@ -57,7 +56,6 @@ def initGloabl(in_test_images,
     test_images = in_test_images
     train_images = in_train_images
     test_class = in_test_class
-    predict_class = in_predict_class
     test_batch_size = in_test_batch_size
     train_batch_size = in_train_batch_size
     fc_size = in_fc_size
@@ -89,6 +87,7 @@ def convLayer(input,
                 filter_size,
                 num_filters,
                 use_pooling=True):
+    print('convLayer: number of input is: {0}'.format(input.get_shape()))
     
     '''
     for example, there are 3 filters, each size is 2x2, but only outpu 1 channel
@@ -138,9 +137,10 @@ def flattenLayer(layer):
     # But now we want to "flatten" all channels
     # which means that we want to assemble all "generated images" into a single array
     # In that case we generate an 1D array which contains 16 images' pixels
-    image_height = layer_shape[1].num_elements()
-    image_width = layer_shape[2].num_elements()
-    num_channels = layer_shape[3].num_elements()
+    print('flattenLayer: shape of input layer is: {0}'.format(layer_shape))
+    image_height = layer_shape[1]
+    image_width = layer_shape[2]
+    num_channels = layer_shape[3]
     num_features = image_width*image_height*num_channels
 
     # Here we flatten image array
@@ -234,10 +234,10 @@ def constructLayersAndOptimizer():
 
     session.run(tf.global_variables_initializer())
 
-    return optimizer, accuracy, y_predict_classification, y_true_classification
+    return optimizer, accuracy, y_predict_classification, y_true_classification, x, y_true
 
 
-def optimize(num_iterations, flat_size_imgs, true_classifications, optimizer, accuracy):
+def optimize(num_iterations, flat_size_imgs, true_classifications, optimizer, accuracy, x, y_true):
     global train_batch_size
     global session
 
@@ -247,7 +247,9 @@ def optimize(num_iterations, flat_size_imgs, true_classifications, optimizer, ac
         # We should assign images to x and classification here
         x_batch = flat_size_imgs[0 : train_batch_size]
         y_true_batch = true_classifications[0 : train_batch_size]
-        feed_dict_train = {x: x_batch, y_true: y_true_batch}
+        x_batch_array = x_batch.eval(session= session)
+        y_true_batch_array = y_true_batch.eval(session = session)
+        feed_dict_train = {x: x_batch_array, y_true: y_true_batch_array}
         session.run(optimizer, feed_dict = feed_dict_train)
 
         if i % 100 == 0:
@@ -274,7 +276,7 @@ def plotExampleErrors(predict_classification, correct, test_imgs, test_classific
     plotImage(images=images, true_class=true_classification, predict_class= predict_classification)
 
 
-def printTestAccuracy(show_example_errors, y_predict_classification):
+def printTestAccuracy(show_example_errors, y_predict_classification, x, y_true):
     global test_images
     global test_class
     global test_batch_size
@@ -355,11 +357,13 @@ def RunTrain():
     global num_iterations
     global train_images
     img_flat = tf.reshape(train_images, [-1, img_size*img_size])
-    optimizer, accuracy, y_predict_classification, y_true_classification = constructLayersAndOptimizer()
+    optimizer, accuracy, y_predict_classification, y_true_classification, x, y_true = constructLayersAndOptimizer()
     optimize(num_iterations=num_iterations, 
             flat_size_imgs=img_flat, 
             true_classifications= y_true_classification,
             optimizer= optimizer,
-            accuracy= accuracy)
+            accuracy= accuracy,
+            x= x,
+            y_true= y_true)
 
-    printTestAccuracy(True, y_predict_classification=y_predict_classification)
+    printTestAccuracy(True, y_predict_classification=y_predict_classification, x= x, y_true= y_true)
